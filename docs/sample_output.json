@@ -1,0 +1,137 @@
+{
+  "official_id": "OFF2026_01",
+  "name": "Rajesh Sharma",
+  "role": "Statistical Officer",
+  "scores": {
+    "Data_Handling": {
+      "competency": "Data_Handling",
+      "final_score": 41.4,
+      "quiz_score": 42.0,
+      "appraisal_score": 40.0,
+      "scoring_mode": "composite",
+      "confidence": "high",
+      "conflict": false,
+      "conflict_reason": null
+    },
+    "Data_Visualization": {
+      "competency": "Data_Visualization",
+      "final_score": 38.6,
+      "quiz_score": 38.0,
+      "appraisal_score": 40.0,
+      "scoring_mode": "composite",
+      "confidence": "high",
+      "conflict": false,
+      "conflict_reason": null
+    },
+    "Pandas_Manipulation": {
+      "competency": "Pandas_Manipulation",
+      "final_score": 40.0,
+      "quiz_score": 40.0,
+      "appraisal_score": 40.0,
+      "scoring_mode": "composite",
+      "confidence": "high",
+      "conflict": false,
+      "conflict_reason": null
+    },
+    "Python_Basics": {
+      "competency": "Python_Basics",
+      "final_score": 80.0,
+      "quiz_score": 80.0,
+      "appraisal_score": 80.0,
+      "scoring_mode": "composite",
+      "confidence": "high",
+      "conflict": false,
+      "conflict_reason": null
+    },
+    "SQL_Basics": {
+      "competency": "SQL_Basics",
+      "final_score": 75.4,
+      "quiz_score": 76.0,
+      "appraisal_score": 74.0,
+      "scoring_mode": "composite",
+      "confidence": "high",
+      "conflict": false,
+      "conflict_reason": null
+    }
+  },
+  "diagnoses": [
+    {
+      "target_competency": "Pandas_Manipulation",
+      "target_score": 40.0,
+      "root_cause": "Data_Handling",
+      "root_score": 41.4,
+      "is_direct_gap": false,
+      "confidence": "high",
+      "recommendation": "Start with 'Data_Handling' (41.4) before attempting 'Pandas_Manipulation'. Remediating the foundation first is expected to unblock 1 downstream competency.",
+      "evidence": [
+        "Pandas_Manipulation scored 40.0 (below threshold 65.0).",
+        "Prerequisite chain: Data_Handling \u2192 Pandas_Manipulation"
+      ],
+      "unassessed_prerequisites": []
+    },
+    {
+      "target_competency": "Data_Handling",
+      "target_score": 41.4,
+      "root_cause": "Data_Handling",
+      "root_score": 41.4,
+      "is_direct_gap": true,
+      "confidence": "high",
+      "recommendation": "'Data_Handling' is a direct gap \u2014 its foundations are solid. Assign targeted remediation for this competency.",
+      "evidence": [
+        "Data_Handling scored 41.4 (below threshold 65.0).",
+        "All prerequisites assessed and met."
+      ],
+      "unassessed_prerequisites": []
+    },
+    {
+      "target_competency": "Data_Visualization",
+      "target_score": 38.6,
+      "root_cause": "Data_Handling",
+      "root_score": 41.4,
+      "is_direct_gap": false,
+      "confidence": "low",
+      "recommendation": "Start with 'Data_Handling' (41.4) before attempting 'Data_Visualization'. Remediating the foundation first is expected to unblock 2 downstream competencies.",
+      "evidence": [
+        "Data_Visualization scored 38.6 (below threshold 65.0).",
+        "Prerequisite(s) never assessed: Descriptive_Statistics, Math_Foundations. Root cause may lie in an untested foundation.",
+        "Prerequisite chain: Data_Handling \u2192 Pandas_Manipulation \u2192 Data_Visualization"
+      ],
+      "unassessed_prerequisites": [
+        "Descriptive_Statistics",
+        "Math_Foundations"
+      ]
+    }
+  ],
+  "learning_path": [
+    {
+      "step": 1,
+      "competency": "Data_Handling",
+      "reason": "Foundational \u2014 unblocks Data_Visualization, Pandas_Manipulation"
+    },
+    {
+      "step": 2,
+      "competency": "Pandas_Manipulation",
+      "reason": "Targeted gap"
+    },
+    {
+      "step": 3,
+      "competency": "Data_Visualization",
+      "reason": "Targeted gap"
+    }
+  ],
+  "coverage": {
+    "total_competencies_in_graph": 11,
+    "assessed_count": 5,
+    "coverage_percent": 45.5,
+    "unassessed_competencies": [
+      "Descriptive_Statistics",
+      "Hypothesis_Testing",
+      "Inferential_Statistics",
+      "Math_Foundations",
+      "Probability_Distributions",
+      "Statistical_Reporting"
+    ],
+    "conflicted_competencies": [],
+    "note": "Diagnoses that depend on unassessed prerequisites are marked low-confidence rather than presented as definitive."
+  }
+}

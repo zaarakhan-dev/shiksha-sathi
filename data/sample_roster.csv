@@ -1,0 +1,9 @@
+id,name,role,quiz_Python_Basics,quiz_SQL_Basics,quiz_Math_Foundations,quiz_Data_Handling,quiz_Descriptive_Statistics,quiz_Pandas_Manipulation,quiz_Data_Visualization,appraisal_Python_Basics,appraisal_Data_Handling,appraisal_Pandas_Manipulation,appraisal_Data_Visualization
+OFF2026_01,Rajesh Sharma,Statistical Officer,80,76,82,42,75,40,38,80,40,40,40
+OFF2026_02,Meera Iyer,Statistical Officer,45,70,78,48,72,52,44,88,55,50,46
+OFF2026_03,Arun Nair,Statistical Officer,85,82,88,79,80,75,62,84,78,74,60
+OFF2026_04,Priya Deshmukh,Statistical Officer,72,40,80,45,74,42,40,70,44,44,42
+OFF2026_05,Sandeep Rao,Statistical Officer,88,85,90,84,86,82,78,86,82,80,76
+OFF2026_06,Kavita Menon,Statistical Officer,55,52,70,44,66,41,36,58,46,44,38
+OFF2026_07,Imran Qureshi,Statistical Officer,78,74,84,70,78,68,52,76,72,66,54
+OFF2026_08,Lata Bhosale,Statistical Officer,62,58,76,50,70,46,42,64,52,48,44
