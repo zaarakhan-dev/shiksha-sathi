@@ -3,10 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Shiksha Sathi v2 | Enterprise Competency Intelligence Layer</title>
+  <title>Shiksha Sathi v3 | Enterprise Competency Intelligence Layer</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     .tab-active { border-bottom: 2px solid #4f46e5; color: #4f46e5; font-weight: 600; }
+    /* Spinner for async loading states */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid #c7d2fe; border-top-color: #4f46e5;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
@@ -17,12 +25,12 @@
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white text-lg">SS</div>
         <div>
-          <h1 class="text-xl font-bold tracking-tight">Shiksha Sathi (v2 Enterprise)</h1>
-          <p class="text-xs text-slate-300">AI Competency Intelligence Layer • Ministry of Statistics & Programme Implementation (MoSPI SIH26101)</p>
+          <h1 class="text-xl font-bold tracking-tight">Shiksha Sathi (v3 Enterprise)</h1>
+          <p class="text-xs text-slate-300">AI Competency Intelligence Layer • Ministry of Statistics &amp; Programme Implementation (MoSPI SIH26101)</p>
         </div>
       </div>
       <div class="flex items-center gap-3 text-xs">
-        <span class="bg-indigo-800 border border-indigo-700 px-3 py-1 rounded-full text-indigo-200">Workflow v2 Verified</span>
+        <span class="bg-indigo-800 border border-indigo-700 px-3 py-1 rounded-full text-indigo-200">Workflow v3 Verified</span>
         <span class="bg-emerald-800 border border-emerald-700 px-3 py-1 rounded-full text-emerald-200">FastAPI + DAG Live</span>
       </div>
     </div>
@@ -31,26 +39,34 @@
   <!-- NAVIGATION TABS -->
   <div class="bg-white border-b border-slate-200">
     <div class="max-w-7xl mx-auto px-6 flex gap-6 text-sm text-slate-600">
-      <button onclick="switchTab('learner')" id="tab-btn-learner" class="py-3 px-2 tab-active transition">👤 Learner Diagnostic & Path</button>
-      <button onclick="switchTab('trainer')" id="tab-btn-trainer" class="py-3 px-2 transition">📊 Trainer & Cohort Dashboard (Phase 6)</button>
-      <button onclick="switchTab('hitl')" id="tab-btn-hitl" class="py-3 px-2 transition">🛡️ AI Question Approval Queue (HITL)</button>
+      <button onclick="switchTab('learner')" id="tab-btn-learner" class="py-3 px-2 tab-active transition">👤 Learner Diagnostic &amp; Path</button>
+      <button onclick="switchTab('trainer')" id="tab-btn-trainer" class="py-3 px-2 transition">📊 Trainer &amp; Cohort Dashboard (Phase 6)</button>
+      <button onclick="switchTab('hitl')" id="tab-btn-hitl" class="py-3 px-2 transition">
+        🛡️ AI Question Approval Queue (HITL)
+        <!-- Live pending-count badge — updated by loadReviewQueue() -->
+        <span id="hitl-badge" class="ml-1.5 bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full"></span>
+      </button>
     </div>
   </div>
 
   <!-- MAIN VIEW -->
   <main class="max-w-7xl mx-auto px-6 py-6 flex-1 w-full space-y-6">
 
-    <!-- VIEW 1: LEARNER DIAGNOSTIC VIEW -->
+    <!-- ================================================================
+         VIEW 1: LEARNER DIAGNOSTIC VIEW
+         Phase 3 — composite scoring, DAG traversal, conflict surfacing
+         ================================================================ -->
     <section id="view-learner" class="space-y-6">
-      
-      <!-- OFFICER SUMMARY & COMPOSITE BADGE -->
+
+      <!-- OFFICER SUMMARY & ACTION BUTTONS -->
       <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <div class="flex items-center gap-2 mb-1">
             <span class="text-xs font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800">MoSPI Cadre</span>
             <span class="text-xs font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-800">Scoring: 70% Quiz + 30% Appraisal</span>
           </div>
-          <h2 class="text-lg font-bold text-slate-900">Statistical Officer: Rajesh Sharma (NSSO)</h2>
+          <!-- Name/role populated from API on DOMContentLoaded -->
+          <h2 class="text-lg font-bold text-slate-900" id="learner-name">Statistical Officer: — (NSSO)</h2>
           <p class="text-xs text-slate-500">Cohort: New Statistical Officers Q3 • Official ID: OFF2026_01</p>
         </div>
         <div class="flex gap-2">
@@ -59,66 +75,100 @@
         </div>
       </div>
 
-      <!-- METRIC CARDS WITH COMPOSITE BREAKDOWN -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <!-- ── CONFLICT ALERT BANNER (hidden until conflicts detected) ── -->
+      <!--
+        Phase 3 — signal conflict surfacing.
+        Shown only when the backend flags quiz/appraisal divergence ≥ 30 pts.
+        Renders each conflicted competency's two raw signals and the reason text.
+      -->
+      <div id="conflict-banner" class="hidden p-4 bg-rose-50 border border-rose-300 rounded-xl text-xs text-rose-900 space-y-1">
+        <div class="font-bold text-rose-800 flex items-center gap-1.5">
+          ⚠ Signal Conflict Detected — HITL Review Required
+        </div>
+        <div id="conflict-list"></div>
+      </div>
+
+      <!-- METRIC CARDS — dynamically populated from /api/v3/diagnose -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4" id="score-cards">
+        <!-- Card: Python Basics -->
         <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div class="text-xs font-medium text-slate-500">Python Basics</div>
-          <div class="text-2xl font-bold text-emerald-600 mt-1" id="score-python">80.0%</div>
-          <div class="text-[11px] text-slate-500 mt-1">Quiz: 80% • Appraisal: 80%</div>
-          <div class="text-[11px] text-emerald-700 font-semibold mt-1">✓ Competency Mastered</div>
+          <div class="text-2xl font-bold mt-1" id="score-python">—</div>
+          <div class="text-[11px] text-slate-500 mt-1" id="score-python-detail">Quiz: — • Appraisal: —</div>
+          <div class="text-[11px] mt-1" id="score-python-status">—</div>
         </div>
-
+        <!-- Card: Data Handling -->
         <div class="bg-white p-4 rounded-xl border-2 border-rose-400 shadow-sm bg-rose-50/20">
           <div class="text-xs font-medium text-slate-500">Data Handling (Prerequisite)</div>
-          <div class="text-2xl font-bold text-rose-600 mt-1" id="score-handling">41.4%</div>
-          <div class="text-[11px] text-slate-500 mt-1">Quiz: 42% (70%) • Appraisal: 40% (30%)</div>
-          <div class="text-[11px] text-rose-700 font-bold mt-1">⚠ Root Bottleneck Identified</div>
+          <div class="text-2xl font-bold mt-1" id="score-handling">—</div>
+          <div class="text-[11px] text-slate-500 mt-1" id="score-handling-detail">Quiz: — • Appraisal: —</div>
+          <div class="text-[11px] mt-1" id="score-handling-status">—</div>
         </div>
-
+        <!-- Card: Pandas Manipulation -->
         <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div class="text-xs font-medium text-slate-500">Pandas Manipulation</div>
-          <div class="text-2xl font-bold text-amber-600 mt-1" id="score-pandas">40.0%</div>
-          <div class="text-[11px] text-slate-500 mt-1">Quiz: 40% • Appraisal: 40%</div>
-          <div class="text-[11px] text-amber-700 font-semibold mt-1">⚠ Blocked by Prerequisite</div>
+          <div class="text-2xl font-bold mt-1" id="score-pandas">—</div>
+          <div class="text-[11px] text-slate-500 mt-1" id="score-pandas-detail">Quiz: — • Appraisal: —</div>
+          <div class="text-[11px] mt-1" id="score-pandas-status">—</div>
         </div>
-
+        <!-- Card: Data Visualization -->
         <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div class="text-xs font-medium text-slate-500">Data Visualization (Target)</div>
-          <div class="text-2xl font-bold text-rose-600 mt-1" id="score-vis">38.6%</div>
-          <div class="text-[11px] text-slate-500 mt-1">Quiz: 38% • Appraisal: 40%</div>
-          <div class="text-[11px] text-rose-700 font-semibold mt-1">✕ Visible Surface Gap</div>
+          <div class="text-2xl font-bold mt-1" id="score-vis">—</div>
+          <div class="text-[11px] text-slate-500 mt-1" id="score-vis-detail">Quiz: — • Appraisal: —</div>
+          <div class="text-[11px] mt-1" id="score-vis-status">—</div>
         </div>
       </div>
 
       <!-- TRAVERSAL GRAPH & ACTIONABLE REMEDIATION -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
           <h3 class="font-bold text-slate-900 text-sm flex items-center justify-between">
             <span>🧠 Phase 3: Prerequisite DAG Traversal Analysis</span>
-            <span class="text-xs px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-semibold" id="remediation-badge">Prerequisite Bottleneck Detected</span>
+            <span class="text-xs px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-semibold" id="remediation-badge">Loading…</span>
           </h3>
 
+          <!-- Diagnosis summary from API -->
           <div class="p-3.5 bg-amber-50 rounded-lg border border-amber-200 text-xs text-amber-900 leading-relaxed" id="diagnosis-box">
-            <strong>System Intelligence:</strong> Although the officer's surface deficiency is <em>Data Visualization (38.6%)</em>, the NetworkX DAG walked backward through parent dependencies and isolated that foundational <strong>Data Handling & Array Slicing (41.4%)</strong> is the primary unmastered ancestor.
+            <span class="spinner"></span>Connecting to the live engine…
           </div>
 
-          <!-- VISUAL STEPPER -->
+          <!--
+            DYNAMIC DAG STEPPER
+            Phase 3 — rendered from data.learning_path returned by the API.
+            Each node in the path becomes a step chip; colour reflects mastery.
+          -->
           <div>
             <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Prerequisite Traversal Walk</div>
-            <div class="flex flex-wrap items-center gap-2 text-xs font-medium">
-              <div class="px-3 py-1.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300">1. Python Basics (80%)</div>
-              <span class="text-slate-400">➔</span>
-              <div class="px-3 py-1.5 rounded-md bg-rose-100 text-rose-800 border-2 border-rose-600 font-bold" id="step-handling">2. Data Handling (41.4%) [ROOT CAUSE]</div>
-              <span class="text-slate-400">➔</span>
-              <div class="px-3 py-1.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300">3. Pandas (40%)</div>
-              <span class="text-slate-400">➔</span>
-              <div class="px-3 py-1.5 rounded-md bg-rose-100 text-rose-800 border border-rose-300" id="step-vis">4. Data Visualization (38.6%)</div>
+            <div class="flex flex-wrap items-center gap-2 text-xs font-medium" id="dag-stepper">
+              <!-- Populated dynamically by renderDagStepper() -->
+              <div class="text-slate-400 text-[11px]">Run diagnosis to see the traversal path.</div>
             </div>
+          </div>
+
+          <!--
+            REASSESSMENT DELTA TABLE
+            Phase 5 — shown only after simulateReassessment() succeeds.
+            Displays before/after per competency with colour-coded deltas.
+          -->
+          <div id="delta-section" class="hidden">
+            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Post-Learning Score Deltas (Phase 5)</div>
+            <table class="w-full text-xs border border-slate-200 rounded-lg overflow-hidden">
+              <thead class="bg-slate-50 text-slate-500 font-semibold">
+                <tr>
+                  <th class="py-2 px-3 text-left">Competency</th>
+                  <th class="py-2 px-3 text-right">Before</th>
+                  <th class="py-2 px-3 text-right">After</th>
+                  <th class="py-2 px-3 text-right">Δ Change</th>
+                </tr>
+              </thead>
+              <tbody id="delta-table-body" class="divide-y divide-slate-100"></tbody>
+            </table>
           </div>
         </div>
 
-        <!-- REMEDIATION MODULE SEQUENCE -->
+        <!-- SEQUENCED iGOT REMEDIATION MODULES — static, path-order anchored -->
         <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-3">
           <h3 class="font-bold text-slate-900 text-sm border-b border-slate-100 pb-2">🎯 Sequenced iGOT Modules</h3>
           <div class="space-y-2.5 text-xs">
@@ -141,75 +191,102 @@
         </div>
 
       </div>
+    </section><!-- /view-learner -->
 
-    </section>
-
-    <!-- VIEW 2: TRAINER & COHORT DASHBOARD -->
+    <!-- ================================================================
+         VIEW 2: TRAINER & COHORT DASHBOARD
+         Phase 1 — CSV roster upload
+         Phase 6 — root-cause surfacing, heatmap table
+         ================================================================ -->
     <section id="view-trainer" class="space-y-6 hidden">
+
+      <!-- CSV UPLOAD FORM — Phase 1 roster ingestion -->
+      <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <h2 class="text-base font-bold text-slate-900 mb-1">Upload Cohort Roster (Phase 1)</h2>
+        <p class="text-xs text-slate-500 mb-4">
+          Upload a CSV with columns: <code class="bg-slate-100 px-1 rounded">id, name, role, quiz_&lt;competency&gt;, appraisal_&lt;competency&gt;</code>
+        </p>
+        <!--
+          multipart/form-data POST to /api/v3/trainer/upload-roster.
+          cohort_id and cohort_name are sent as Form fields alongside the file.
+        -->
+        <form id="roster-form" onsubmit="uploadRoster(event)" class="flex flex-wrap gap-3 items-end">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium text-slate-600">Cohort ID</label>
+            <input type="text" id="upload-cohort-id" value="COHORT_2026_Q3"
+              class="text-xs border border-slate-300 rounded-lg px-3 py-2 w-44 focus:outline-none focus:ring-2 focus:ring-indigo-400" required />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium text-slate-600">Cohort Name</label>
+            <input type="text" id="upload-cohort-name" value="New Statistical Officers Q3"
+              class="text-xs border border-slate-300 rounded-lg px-3 py-2 w-64 focus:outline-none focus:ring-2 focus:ring-indigo-400" required />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium text-slate-600">Roster CSV File</label>
+            <input type="file" id="roster-file" accept=".csv"
+              class="text-xs border border-slate-300 rounded-lg px-3 py-1.5 w-64 focus:outline-none focus:ring-2 focus:ring-indigo-400" required />
+          </div>
+          <button type="submit" id="upload-btn"
+            class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs rounded-lg font-medium transition">
+            ↑ Upload &amp; Ingest Roster
+          </button>
+        </form>
+        <!-- Upload status/warnings rendered here -->
+        <div id="upload-status" class="mt-3 text-xs hidden"></div>
+      </div>
+
+      <!-- COHORT HEATMAP PANEL -->
       <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
         <div class="flex justify-between items-center mb-4">
           <div>
-            <h2 class="text-base font-bold text-slate-900">Cohort Gap Heatmap & Aggregation</h2>
-            <p class="text-xs text-slate-500">Cohort: New Statistical Officers Q3 (24 Active Officers Ingested)</p>
+            <h2 class="text-base font-bold text-slate-900">Cohort Gap Heatmap &amp; Aggregation</h2>
+            <p class="text-xs text-slate-500" id="cohort-subtitle">Loading cohort data…</p>
           </div>
-          <button class="px-3 py-1.5 bg-slate-900 text-white text-xs rounded-lg font-medium hover:bg-slate-800">+ Upload New Roster CSV</button>
+          <!-- Manual refresh -->
+          <button onclick="loadCohortHeatmap(document.getElementById('upload-cohort-id').value)"
+            class="px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs rounded-lg font-medium hover:bg-indigo-100 transition">
+            ↻ Refresh Heatmap
+          </button>
         </div>
 
-        <!-- COMMON ROOT CAUSE SURFACING CALLOUT -->
-        <div class="p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between mb-4">
+        <!--
+          PHASE 6 CALLOUT — dynamically updated from /api/v3/trainer/cohort-heatmap.
+          Shows the top shared bottleneck and the trainer recommendation.
+        -->
+        <div id="phase6-callout" class="p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between mb-4">
           <div class="space-y-0.5">
             <span class="text-xs font-bold text-indigo-900 uppercase tracking-wide">🔍 Phase 6 Common Root-Cause Surfacing</span>
-            <p class="text-sm text-indigo-950 font-medium">62.5% of cohort (15 of 24 officers) are blocked on the same skill: <strong>Data Handling</strong>.</p>
-            <p class="text-xs text-indigo-700">Recommendation: Instead of holding 24 individual sessions, conduct 1 group intervention on Data Handling.</p>
+            <p class="text-sm text-indigo-950 font-medium" id="phase6-insight">Loading cohort analysis…</p>
+            <p class="text-xs text-indigo-700" id="phase6-recommendation"></p>
           </div>
           <button class="px-3 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700">Schedule Cohort Workshop</button>
         </div>
 
-        <!-- HEATMAP TABLE -->
+        <!-- HEATMAP TABLE — dynamically built from /api/v3/cohort/{id}/officials -->
         <div class="overflow-x-auto">
           <table class="w-full text-xs text-left">
             <thead class="bg-slate-50 text-slate-500 font-semibold border-y border-slate-200">
-              <tr>
+              <tr id="heatmap-header">
+                <!-- Headers rendered by buildHeatmapTable() -->
                 <th class="py-2.5 px-3">Officer Name</th>
-                <th class="py-2.5 px-3">Python Basics</th>
-                <th class="py-2.5 px-3">Data Handling</th>
-                <th class="py-2.5 px-3">Pandas</th>
-                <th class="py-2.5 px-3">Data Visualization</th>
-                <th class="py-2.5 px-3">Diagnosis Signal</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-100">
+            <tbody id="heatmap-body" class="divide-y divide-slate-100">
               <tr>
-                <td class="py-2 px-3 font-medium">Rajesh Sharma</td>
-                <td class="py-2 px-3 text-emerald-600 font-bold">80%</td>
-                <td class="py-2 px-3 text-rose-600 font-bold bg-rose-50">41% [ROOT]</td>
-                <td class="py-2 px-3 text-amber-600 font-bold">40%</td>
-                <td class="py-2 px-3 text-rose-600 font-bold">39%</td>
-                <td class="py-2 px-3"><span class="px-2 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-semibold">Prereq Deficit</span></td>
-              </tr>
-              <tr>
-                <td class="py-2 px-3 font-medium">Pooja Verma</td>
-                <td class="py-2 px-3 text-emerald-600 font-bold">88%</td>
-                <td class="py-2 px-3 text-emerald-600 font-bold">82%</td>
-                <td class="py-2 px-3 text-emerald-600 font-bold">78%</td>
-                <td class="py-2 px-3 text-emerald-600 font-bold">85%</td>
-                <td class="py-2 px-3"><span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">Mastered</span></td>
-              </tr>
-              <tr>
-                <td class="py-2 px-3 font-medium">Amit Saxena</td>
-                <td class="py-2 px-3 text-emerald-600 font-bold">75%</td>
-                <td class="py-2 px-3 text-rose-600 font-bold bg-rose-50">45% [ROOT]</td>
-                <td class="py-2 px-3 text-rose-600 font-bold">42%</td>
-                <td class="py-2 px-3 text-rose-600 font-bold">40%</td>
-                <td class="py-2 px-3"><span class="px-2 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-semibold">Prereq Deficit</span></td>
+                <td class="py-3 px-3 text-slate-400 text-xs italic" colspan="99">
+                  <span class="spinner"></span>Loading officials…
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
-    </section>
+    </section><!-- /view-trainer -->
 
-    <!-- VIEW 3: HITL AI QUESTION QUEUE -->
+    <!-- ================================================================
+         VIEW 3: HITL AI QUESTION APPROVAL QUEUE
+         Phase 4 — every AI-generated question requires trainer sign-off.
+         ================================================================ -->
     <section id="view-hitl" class="space-y-6 hidden">
       <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
         <div class="flex justify-between items-center mb-3">
@@ -217,109 +294,286 @@
             <h2 class="text-base font-bold text-slate-900">Human-in-the-Loop (HITL) Question Approval Queue</h2>
             <p class="text-xs text-slate-500">AI-generated MCQs (Ollama/RAG) must be verified by a certified MoSPI trainer before release.</p>
           </div>
-          <span class="text-xs bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full font-semibold">1 Pending Review</span>
+          <!-- Live count badge — synced with loadReviewQueue() -->
+          <span id="hitl-count-badge" class="text-xs bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full font-semibold">Loading…</span>
         </div>
 
-        <div class="p-4 border border-slate-200 rounded-lg bg-slate-50/50 space-y-3">
-          <div class="flex justify-between text-xs text-slate-500">
-            <span>Competency: <strong>Data_Handling</strong></span>
-            <span>Source: <em>MoSPI Training Manual Vol 2 - Data Handling.pdf</em></span>
-          </div>
-          <p class="text-sm font-semibold text-slate-800">"Which pandas function is primarily used to filter rows based on a boolean condition?"</p>
-          <div class="grid grid-cols-2 gap-2 text-xs">
-            <div class="p-2 rounded border bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold">A. df.loc[] (Key Correct)</div>
-            <div class="p-2 rounded border bg-white border-slate-200 text-slate-600">B. df.merge()</div>
-            <div class="p-2 rounded border bg-white border-slate-200 text-slate-600">C. df.groupby()</div>
-            <div class="p-2 rounded border bg-white border-slate-200 text-slate-600">D. df.describe()</div>
-          </div>
-          <div class="flex gap-2 justify-end pt-2">
-            <button onclick="alert('Question Rejected & Sent back to Ollama prompt loop.')" class="px-3 py-1.5 border border-rose-300 text-rose-700 rounded text-xs hover:bg-rose-50 font-medium">Reject / Revise</button>
-            <button onclick="alert('Question Approved! Added to active MoSPI diagnostic bank.')" class="px-3 py-1.5 bg-emerald-600 text-white rounded text-xs hover:bg-emerald-700 font-semibold">Approve & Publish to Bank</button>
-          </div>
+        <!--
+          Question cards are dynamically rendered by renderQueueCards().
+          Each card has real Approve / Reject buttons that POST to /api/v3/hitl/review.
+        -->
+        <div id="hitl-queue-container" class="space-y-4">
+          <div class="text-slate-400 text-xs italic p-3"><span class="spinner"></span>Fetching queue…</div>
         </div>
       </div>
-    </section>
+    </section><!-- /view-hitl -->
 
   </main>
 
   <footer class="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-500">
-    Shiksha Sathi Enterprise v2 • MoSPI SIH26101 • Team Disha (Apeejay Stya University)
+    Shiksha Sathi Enterprise v3 • MoSPI SIH26101 • Team Disha (Apeejay Stya University)
   </footer>
 
   <script>
+    // =====================================================================
+    // GLOBAL CONFIG
+    // =====================================================================
+    const API_BASE     = "http://localhost:8000";
+    const COHORT_ID    = "COHORT_2026_Q3";
+    const OFFICIAL_ID  = "OFF2026_01";
+    // Default reviewer identity for the HITL prototype (no login system)
+    const REVIEWER_ID  = "MoSPI_Trainer_Demo";
+
+    // Mastery threshold — must match backend ScoringConfig.mastery_threshold
+    const MASTERY_THRESHOLD = 65.0;
+
+    // =====================================================================
+    // TAB SWITCHING
+    // =====================================================================
     function switchTab(tab) {
-      document.getElementById('view-learner').classList.add('hidden');
-      document.getElementById('view-trainer').classList.add('hidden');
-      document.getElementById('view-hitl').classList.add('hidden');
+      ["learner", "trainer", "hitl"].forEach(t => {
+        document.getElementById("view-" + t).classList.add("hidden");
+        document.getElementById("tab-btn-" + t).className =
+          "py-3 px-2 transition text-slate-600";
+      });
+      document.getElementById("view-" + tab).classList.remove("hidden");
+      document.getElementById("tab-btn-" + tab).className =
+        "py-3 px-2 tab-active transition";
 
-      document.getElementById('tab-btn-learner').className = 'py-3 px-2 transition text-slate-600';
-      document.getElementById('tab-btn-trainer').className = 'py-3 px-2 transition text-slate-600';
-      document.getElementById('tab-btn-hitl').className = 'py-3 px-2 transition text-slate-600';
-
-      document.getElementById('view-' + tab).classList.remove('hidden');
-      document.getElementById('tab-btn-' + tab).className = 'py-3 px-2 tab-active transition';
+      // Lazy-load data when switching to Trainer or HITL tabs
+      if (tab === "trainer") loadCohortHeatmap(COHORT_ID);
+      if (tab === "hitl")    loadReviewQueue();
     }
 
-    // ------------------------------------------------------------------
-    // API wiring. Every number shown below comes from the live backend.
-    // ------------------------------------------------------------------
-    const API_BASE = "http://localhost:8000";
-    const COHORT_ID = "COHORT_2026_Q3";
-    const OFFICIAL_ID = "OFF2026_01";
+    // =====================================================================
+    // UTILITY HELPERS
+    // =====================================================================
 
-    function setStatus(msg, isError) {
+    /** Set the diagnosis box content (accepts raw HTML). */
+    function setStatus(html, isError) {
       const box = document.getElementById("diagnosis-box");
       if (!box) return;
-      box.innerHTML = isError
-        ? `<strong class="text-red-700">Error:</strong> ${msg}`
-        : msg;
+      box.className =
+        "p-3.5 rounded-lg border text-xs leading-relaxed " +
+        (isError
+          ? "bg-rose-50 border-rose-200 text-rose-900"
+          : "bg-amber-50 border-amber-200 text-amber-900");
+      box.innerHTML = html;
     }
 
-    function paintScore(elId, value) {
-      const el = document.getElementById(elId);
-      if (!el || value === undefined || value === null) return;
-      el.innerText = value.toFixed(1) + "%";
-      el.className =
-        "text-2xl font-bold mt-1 " +
-        (value >= 65 ? "text-emerald-600" : "text-red-600");
+    /**
+     * Paint a score card element.
+     * @param {string} scoreElId  — id of the large score number element
+     * @param {string} detailElId — id of the quiz/appraisal sub-text element
+     * @param {string} statusElId — id of the status label element
+     * @param {object} cs         — CompetencyScoreOut from the API
+     */
+    function paintScoreCard(scoreElId, detailElId, statusElId, cs) {
+      const scoreEl  = document.getElementById(scoreElId);
+      const detailEl = document.getElementById(detailElId);
+      const statusEl = document.getElementById(statusElId);
+      if (!scoreEl || !cs) return;
+
+      const val = cs.final_score;
+      const mastered = val !== null && val >= MASTERY_THRESHOLD;
+
+      scoreEl.innerText = val !== null ? val.toFixed(1) + "%" : "N/A";
+      scoreEl.className = "text-2xl font-bold mt-1 " +
+        (val === null ? "text-slate-400" : mastered ? "text-emerald-600" : "text-rose-600");
+
+      if (detailEl) {
+        const qz  = cs.quiz_score   !== null ? cs.quiz_score.toFixed(1) + "%" : "—";
+        const apr = cs.appraisal_score !== null ? cs.appraisal_score.toFixed(1) + "%" : "—";
+        detailEl.innerText = `Quiz: ${qz} • Appraisal: ${apr}`;
+      }
+      if (statusEl) {
+        if (val === null) {
+          statusEl.className = "text-[11px] mt-1 text-slate-400";
+          statusEl.innerText = "Not assessed";
+        } else if (cs.conflict) {
+          statusEl.className = "text-[11px] mt-1 text-rose-700 font-bold";
+          statusEl.innerText = "⚠ Signal Conflict — Needs Review";
+        } else if (mastered) {
+          statusEl.className = "text-[11px] mt-1 text-emerald-700 font-semibold";
+          statusEl.innerText = "✓ Competency Mastered";
+        } else {
+          statusEl.className = "text-[11px] mt-1 text-amber-700 font-semibold";
+          statusEl.innerText = "⚠ Below Threshold";
+        }
+      }
     }
 
+    /**
+     * Phase 3 — render the DAG traversal stepper from learning_path array.
+     * Each step becomes a coloured chip; mastered nodes are green,
+     * weak nodes are red/amber, unassessed are grey.
+     * @param {Array}  path   — learning_path from API
+     * @param {object} scores — scores map from API
+     */
+    function renderDagStepper(path, scores) {
+      const container = document.getElementById("dag-stepper");
+      if (!container) return;
+      if (!path || path.length === 0) {
+        container.innerHTML =
+          '<div class="text-slate-400 text-[11px]">No remediation path required.</div>';
+        return;
+      }
+
+      container.innerHTML = path.map((step, i) => {
+        const comp = step.competency;
+        const cs   = scores[comp];
+        const val  = cs ? cs.final_score : null;
+        const mastered = val !== null && val >= MASTERY_THRESHOLD;
+
+        let chipClass = "px-3 py-1.5 rounded-md border font-medium text-xs ";
+        if (val === null) {
+          chipClass += "bg-slate-100 text-slate-500 border-slate-300";
+        } else if (mastered) {
+          chipClass += "bg-emerald-100 text-emerald-800 border-emerald-300";
+        } else if (i === 0) {
+          // First step in path = identified root bottleneck
+          chipClass += "bg-rose-100 text-rose-800 border-2 border-rose-600 font-bold";
+        } else {
+          chipClass += "bg-amber-100 text-amber-800 border-amber-300";
+        }
+
+        const label = `${step.step}. ${comp.replaceAll("_", " ")}` +
+          (val !== null ? ` (${val.toFixed(1)}%)` : " (unassessed)") +
+          (i === 0 && path.length > 1 ? " [ROOT CAUSE]" : "");
+
+        const arrow = i < path.length - 1
+          ? '<span class="text-slate-400">➔</span>' : "";
+
+        return `<div class="${chipClass}">${label}</div>${arrow}`;
+      }).join("");
+    }
+
+    /**
+     * Phase 3 — render the conflict alert banner.
+     * Hidden if no conflicts; shown with per-competency detail if any exist.
+     * @param {Array} conflicts — array of CompetencyScoreOut objects
+     */
+    function renderConflictBanner(conflicts) {
+      const banner   = document.getElementById("conflict-banner");
+      const listEl   = document.getElementById("conflict-list");
+      if (!banner || !listEl) return;
+
+      if (!conflicts || conflicts.length === 0) {
+        banner.classList.add("hidden");
+        return;
+      }
+
+      banner.classList.remove("hidden");
+      listEl.innerHTML = conflicts.map(c => `
+        <div class="mt-1 pl-2 border-l-2 border-rose-400">
+          <strong>${c.competency.replaceAll("_", " ")}</strong>
+          — Quiz: <span class="font-semibold">${c.quiz_score ?? "—"}%</span>
+          vs Appraisal: <span class="font-semibold">${c.appraisal_score ?? "—"}%</span>
+          <span class="text-rose-700"> • ${c.conflict_reason ?? ""}</span>
+        </div>
+      `).join("");
+    }
+
+    /**
+     * Phase 5 — render the before/after delta table.
+     * @param {Array} changes — ScoreDelta array from /api/v3/reassessment/update
+     */
+    function renderDeltaTable(changes) {
+      const section = document.getElementById("delta-section");
+      const tbody   = document.getElementById("delta-table-body");
+      if (!section || !tbody || !changes || changes.length === 0) return;
+
+      tbody.innerHTML = changes.map(c => {
+        const before = c.before !== null ? c.before.toFixed(1) + "%" : "—";
+        const after  = c.after.toFixed(1) + "%";
+        const delta  = c.delta !== null
+          ? `<span class="${c.delta > 0 ? "text-emerald-600 font-bold" : "text-rose-600"}">` +
+            `${c.delta > 0 ? "+" : ""}${c.delta.toFixed(1)}</span>`
+          : '<span class="text-slate-400">New</span>';
+
+        return `<tr>
+          <td class="py-2 px-3 font-medium">${c.competency.replaceAll("_", " ")}</td>
+          <td class="py-2 px-3 text-right text-slate-500">${before}</td>
+          <td class="py-2 px-3 text-right font-semibold">${after}</td>
+          <td class="py-2 px-3 text-right">${delta}</td>
+        </tr>`;
+      }).join("");
+
+      section.classList.remove("hidden");
+    }
+
+    // =====================================================================
+    // TAB 1 — LEARNER DIAGNOSTIC
+    // Phase 3: fetch composite scores, DAG path, conflicts from live engine
+    // =====================================================================
     async function runCompositeDiagnosis() {
-      setStatus("Running diagnosis against the live engine…", false);
+      setStatus('<span class="spinner"></span>Running diagnosis against the live engine…', false);
+      document.getElementById("conflict-banner").classList.add("hidden");
+
       try {
         const res = await fetch(
           `${API_BASE}/api/v3/diagnose/${COHORT_ID}/${OFFICIAL_ID}`
         );
-        if (!res.ok) throw new Error(`API returned ${res.status}`);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(`API ${res.status}: ${err.detail || res.statusText}`);
+        }
         const data = await res.json();
 
+        // Update officer name/role in header
+        const nameEl = document.getElementById("learner-name");
+        if (nameEl) nameEl.innerText = `${data.role}: ${data.name} (NSSO)`;
+
         const s = data.scores || {};
-        paintScore("score-handling", s.Data_Handling?.final_score);
-        paintScore("score-pandas", s.Pandas_Manipulation?.final_score);
-        paintScore("score-vis", s.Data_Visualization?.final_score);
 
-        const top = (data.diagnoses || [])[0];
-        const cov = data.coverage || {};
+        // Paint the four score cards from real API data
+        paintScoreCard("score-python",  "score-python-detail",  "score-python-status",  s.Python_Basics);
+        paintScoreCard("score-handling","score-handling-detail","score-handling-status", s.Data_Handling);
+        paintScoreCard("score-pandas",  "score-pandas-detail",  "score-pandas-status",  s.Pandas_Manipulation);
+        paintScoreCard("score-vis",     "score-vis-detail",     "score-vis-status",      s.Data_Visualization);
 
-        let html = "";
-        if (top) {
-          html += `<strong>Root cause:</strong> ${top.root_cause} `
-                + `(${top.root_score}%) is blocking ${top.target_competency} `
-                + `(${top.target_score}%).<br/>`
-                + `<strong>Confidence:</strong> ${top.confidence}<br/>`
-                + `<strong>Recommendation:</strong> ${top.recommendation}`;
-          if (top.evidence?.length) {
-            html += `<br/><span class="text-xs text-slate-500">`
-                  + top.evidence.map(e => "• " + e).join("<br/>")
-                  + `</span>`;
-          }
-        } else {
-          html += "No competency gaps detected above threshold.";
+        // Phase 3 — render signal conflict banner
+        renderConflictBanner(data.conflicts || []);
+
+        // Phase 3 — render DAG traversal stepper from learning_path
+        renderDagStepper(data.learning_path || [], s);
+
+        // Update remediation-path badge
+        const badge = document.getElementById("remediation-badge");
+        if (badge) {
+          const pathLen = (data.learning_path || []).length;
+          badge.innerText = pathLen
+            ? `${pathLen}-step prerequisite-ordered path`
+            : "No remediation required";
+          badge.className = "text-xs px-2.5 py-0.5 rounded-full font-semibold " +
+            (pathLen ? "bg-indigo-100 text-indigo-800" : "bg-emerald-100 text-emerald-800");
         }
 
-        html += `<br/><span class="text-xs text-amber-700">`
-              + `Assessment coverage: ${cov.assessed_count}/${cov.total_competencies_in_graph} `
-              + `competencies (${cov.coverage_percent}%).`;
+        // Build diagnosis summary HTML
+        const top  = (data.diagnoses || [])[0];
+        const cov  = data.coverage || {};
+        let html = "";
+
+        if (top) {
+          html += `<strong>Root cause:</strong> ${top.root_cause.replaceAll("_"," ")} `
+               + `(${top.root_score ?? "—"}%) is blocking `
+               + `${top.target_competency.replaceAll("_"," ")} `
+               + `(${top.target_score}%).<br/>`
+               + `<strong>Confidence:</strong> ${top.confidence}<br/>`
+               + `<strong>Recommendation:</strong> ${top.recommendation}`;
+          if (top.evidence?.length) {
+            html += `<br/><span class="text-[11px] text-amber-800">`
+                 + top.evidence.map(e => "• " + e).join("<br/>")
+                 + `</span>`;
+          }
+        } else {
+          html += "<strong>✓ No competency gaps detected above threshold.</strong> "
+               + "All assessed competencies meet the mastery threshold.";
+        }
+
+        html += `<br/><span class="text-[11px] text-amber-700">`
+             + `Assessment coverage: ${cov.assessed_count}/${cov.total_competencies_in_graph} `
+             + `competencies (${cov.coverage_percent}%).`;
         if (cov.unassessed_competencies?.length) {
           html += ` Untested: ${cov.unassessed_competencies.join(", ")}.`;
         }
@@ -327,68 +581,460 @@
 
         setStatus(html, false);
 
-        // Ordered remediation path
-        const path = data.learning_path || [];
-        const badge = document.getElementById("remediation-badge");
-        if (badge) {
-          badge.innerText = path.length
-            ? `${path.length}-step prerequisite-ordered path`
-            : "No remediation required";
-          badge.className =
-            "text-xs px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-semibold";
-        }
       } catch (err) {
         setStatus(
-          `${err.message}. Is the backend running on ${API_BASE}? `
-          + `Start it with: uvicorn app.main:app --reload --port 8000`,
+          `<strong>Connection error:</strong> ${err.message}.<br/>`
+          + `Is the backend running? Start with:<br/>`
+          + `<code class="bg-rose-100 px-1 rounded">uvicorn app.main:app --reload --port 8000</code>`,
           true
         );
       }
     }
 
+    /**
+     * Phase 5 — POST updated quiz scores, then refresh diagnosis UI with
+     * the recomputed state and render the before/after delta table.
+     */
     async function simulateReassessment() {
-      setStatus("Submitting re-assessment scores…", false);
+      setStatus('<span class="spinner"></span>Submitting post-learning test scores…', false);
+      document.getElementById("delta-section")?.classList.add("hidden");
+
       try {
         const res = await fetch(`${API_BASE}/api/v3/reassessment/update`, {
-          method: "POST",
+          method:  "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            cohort_id: COHORT_ID,
+            cohort_id:  COHORT_ID,
             official_id: OFFICIAL_ID,
             reassessed_quiz_scores: {
-              Data_Handling: 82.0,
+              Data_Handling:      82.0,
               Pandas_Manipulation: 76.5,
-              Data_Visualization: 84.2
-            }
-          })
+              Data_Visualization:  84.2,
+            },
+          }),
         });
-        if (!res.ok) throw new Error(`API returned ${res.status}`);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(`API ${res.status}: ${err.detail || res.statusText}`);
+        }
         const data = await res.json();
 
-        // Re-read the diagnosis so the UI reflects real recomputed state
+        // Re-run full diagnosis so all cards + stepper reflect the updated state
         await runCompositeDiagnosis();
 
-        const lines = (data.changes || [])
-          .filter(c => c.delta !== null)
-          .map(c => `${c.competency}: ${c.before}% → ${c.after}% (${c.delta > 0 ? "+" : ""}${c.delta})`);
+        // Phase 5 — render delta table
+        renderDeltaTable(data.changes || []);
 
-        setStatus(
-          `<strong>Re-assessment recorded.</strong><br/>`
-          + lines.join("<br/>")
-          + `<br/><strong>${data.competencies_improved}</strong> competencies improved · `
-          + `<strong>${data.remaining_gaps}</strong> gaps remaining.`,
-          false
-        );
+        // Prepend a summary message to the diagnosis box
+        const improved = data.competencies_improved;
+        const remaining = data.remaining_gaps;
+        const summaryBanner = document.createElement("div");
+        summaryBanner.className =
+          "mb-3 p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg text-emerald-900 text-xs font-medium";
+        summaryBanner.innerHTML =
+          `✓ Re-assessment recorded. `
+          + `<strong>${improved}</strong> competenc${improved === 1 ? "y" : "ies"} improved · `
+          + `<strong>${remaining}</strong> gap${remaining === 1 ? "" : "s"} remaining.`;
+        const box = document.getElementById("diagnosis-box");
+        if (box) box.prepend(summaryBanner);
+
       } catch (err) {
         setStatus(
-          `${err.message}. Is the backend running on ${API_BASE}?`,
+          `<strong>Re-assessment failed:</strong> ${err.message}.<br/>`
+          + `Ensure the backend is running on ${API_BASE}.`,
           true
         );
       }
     }
 
-    // Load a real diagnosis as soon as the page opens
-    window.addEventListener("DOMContentLoaded", runCompositeDiagnosis);
+    // =====================================================================
+    // TAB 2 — TRAINER & COHORT DASHBOARD
+    // Phase 1: CSV upload; Phase 6: heatmap + officials table
+    // =====================================================================
+
+    /**
+     * Phase 1 — submit the roster CSV as multipart/form-data.
+     * On success, auto-refreshes the heatmap for the uploaded cohort.
+     */
+    async function uploadRoster(event) {
+      event.preventDefault();
+      const cohortId   = document.getElementById("upload-cohort-id").value.trim();
+      const cohortName = document.getElementById("upload-cohort-name").value.trim();
+      const fileInput  = document.getElementById("roster-file");
+      const statusEl   = document.getElementById("upload-status");
+      const btn        = document.getElementById("upload-btn");
+
+      if (!fileInput.files.length) {
+        showUploadStatus("Please select a CSV file.", "error");
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Uploading…';
+      showUploadStatus('<span class="spinner"></span>Sending roster to the ingestion endpoint…', "info");
+
+      const formData = new FormData();
+      formData.append("cohort_id",   cohortId);
+      formData.append("cohort_name", cohortName);
+      formData.append("file",        fileInput.files[0]);
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v3/trainer/upload-roster`, {
+          method: "POST",
+          body:   formData,
+          // Note: do NOT set Content-Type manually — the browser sets it
+          // automatically with the correct multipart boundary.
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.detail || `HTTP ${res.status}`);
+        }
+
+        let msg = `<span class="text-emerald-700 font-semibold">✓ Ingestion complete.</span> `
+                + `${data.records_ingested} records loaded into cohort <strong>${data.cohort_id}</strong>.`;
+
+        if (data.warnings?.length) {
+          msg += `<br/><span class="text-amber-700">`
+              + `⚠ ${data.warnings.length} warning${data.warnings.length > 1 ? "s" : ""}:</span>`
+              + `<ul class="list-disc ml-5 mt-1 text-amber-800">`
+              + data.warnings.map(w => `<li>${w}</li>`).join("")
+              + `</ul>`;
+        }
+        showUploadStatus(msg, "success");
+
+        // Auto-refresh heatmap and table for the newly uploaded cohort
+        document.getElementById("upload-cohort-id").value = cohortId;
+        await loadCohortHeatmap(cohortId);
+
+      } catch (err) {
+        showUploadStatus(
+          `<span class="text-rose-700 font-semibold">Upload failed:</span> ${err.message}`,
+          "error"
+        );
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = "↑ Upload &amp; Ingest Roster";
+      }
+    }
+
+    function showUploadStatus(html, type) {
+      const el = document.getElementById("upload-status");
+      if (!el) return;
+      el.classList.remove("hidden");
+      const colours = {
+        info:    "bg-blue-50 border border-blue-200 text-blue-900",
+        success: "bg-emerald-50 border border-emerald-200 text-emerald-900",
+        error:   "bg-rose-50 border border-rose-200 text-rose-900",
+        warn:    "bg-amber-50 border border-amber-200 text-amber-900",
+      };
+      el.className = `mt-3 text-xs p-3 rounded-lg ${colours[type] || colours.info}`;
+      el.innerHTML = html;
+    }
+
+    /**
+     * Phase 6 — fetch heatmap + officials list and re-render:
+     *   1. Phase 6 callout (top bottleneck + recommendation)
+     *   2. Cohort heatmap table (dynamic columns from assessed competencies)
+     */
+    async function loadCohortHeatmap(cohortId) {
+      const subtitleEl       = document.getElementById("cohort-subtitle");
+      const insightEl        = document.getElementById("phase6-insight");
+      const recommendationEl = document.getElementById("phase6-recommendation");
+      const headerEl         = document.getElementById("heatmap-header");
+      const bodyEl           = document.getElementById("heatmap-body");
+
+      if (insightEl) insightEl.innerHTML = '<span class="spinner"></span>Running cohort analysis…';
+      if (bodyEl)    bodyEl.innerHTML    = '<tr><td class="py-3 px-3 text-slate-400 text-xs italic" colspan="99"><span class="spinner"></span>Loading officials…</td></tr>';
+
+      try {
+        // Fetch heatmap summary and officials list in parallel
+        const [heatmapRes, officialsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/v3/trainer/cohort-heatmap/${cohortId}`),
+          fetch(`${API_BASE}/api/v3/cohort/${cohortId}/officials`),
+        ]);
+
+        if (!heatmapRes.ok)   throw new Error(`Heatmap API ${heatmapRes.status}`);
+        if (!officialsRes.ok) throw new Error(`Officials API ${officialsRes.status}`);
+
+        const heatmap   = await heatmapRes.json();
+        const officials = await officialsRes.json();
+
+        // ── Update subtitle ──
+        if (subtitleEl) {
+          subtitleEl.innerText =
+            `Cohort: ${heatmap.cohort_name} • ${heatmap.total_officials} Official${heatmap.total_officials === 1 ? "" : "s"} Loaded`;
+        }
+
+        // ── Phase 6 callout ──
+        const top = heatmap.bottlenecks?.[0];
+        if (top && insightEl) {
+          insightEl.innerHTML =
+            `<strong>${top.percentage_of_cohort}%</strong> of cohort `
+            + `(<strong>${top.blocked_officials}</strong> of ${heatmap.total_officials} officers) `
+            + `are blocked on the same skill: <strong>${top.root_competency.replaceAll("_"," ")}</strong>.`;
+          if (recommendationEl) {
+            recommendationEl.innerText = heatmap.suggested_action;
+          }
+        } else if (insightEl) {
+          insightEl.innerText = "No shared bottleneck detected across the cohort.";
+          if (recommendationEl) recommendationEl.innerText = "";
+        }
+
+        // ── Build dynamic heatmap table ──
+        buildHeatmapTable(officials.officials || [], heatmap.bottlenecks || []);
+
+      } catch (err) {
+        if (insightEl) insightEl.innerHTML =
+          `<span class="text-rose-600">Error loading cohort data: ${err.message}</span>`;
+        if (bodyEl) bodyEl.innerHTML =
+          `<tr><td class="py-3 px-3 text-rose-400 text-xs italic" colspan="99">${err.message}</td></tr>`;
+      }
+    }
+
+    /**
+     * Render the cohort heatmap table with all assessed competencies as columns.
+     * Root-bottleneck cells are highlighted in rose; mastered cells in emerald.
+     * @param {Array}  officials   — OfficialSummary[] from /api/v3/cohort/{id}/officials
+     * @param {Array}  bottlenecks — BottleneckOut[] from cohort-heatmap
+     */
+    function buildHeatmapTable(officials, bottlenecks) {
+      const headerEl = document.getElementById("heatmap-header");
+      const bodyEl   = document.getElementById("heatmap-body");
+      if (!headerEl || !bodyEl) return;
+
+      if (officials.length === 0) {
+        bodyEl.innerHTML =
+          '<tr><td class="py-3 px-3 text-slate-400 text-xs italic" colspan="99">No officials in this cohort yet. Upload a roster CSV above.</td></tr>';
+        return;
+      }
+
+      // Collect all competencies that appear in at least one official's scores
+      const allCompetencies = new Set();
+      officials.forEach(off => {
+        Object.entries(off.composite_scores || {}).forEach(([comp, val]) => {
+          if (val !== null) allCompetencies.add(comp);
+        });
+      });
+      // Sort alphabetically for a stable column order
+      const columns = [...allCompetencies].sort();
+
+      // Set of root bottleneck competencies for cell highlighting
+      const rootSet = new Set((bottlenecks || []).map(b => b.root_competency));
+
+      // Rebuild table header
+      headerEl.innerHTML =
+        `<th class="py-2.5 px-3">Officer Name</th>`
+        + columns.map(c =>
+            `<th class="py-2.5 px-3">${c.replaceAll("_"," ")}</th>`
+          ).join("")
+        + `<th class="py-2.5 px-3">Signal</th>`;
+
+      // Build rows
+      bodyEl.innerHTML = officials.map(off => {
+        const cells = columns.map(comp => {
+          const val = off.composite_scores?.[comp];
+          if (val === null || val === undefined) {
+            return `<td class="py-2 px-3 text-slate-400">—</td>`;
+          }
+          const mastered = val >= MASTERY_THRESHOLD;
+          const isRoot   = rootSet.has(comp) && !mastered;
+          let cls = "py-2 px-3 font-bold ";
+          cls += isRoot    ? "text-rose-600 bg-rose-50"
+               : mastered  ? "text-emerald-600"
+               :             "text-amber-600";
+          return `<td class="${cls}">${val.toFixed(1)}%${isRoot ? " [ROOT]" : ""}</td>`;
+        }).join("");
+
+        const signalBadge = off.has_conflict
+          ? `<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-semibold">Signal Conflict</span>`
+          : `<span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold">No Conflict</span>`;
+
+        return `<tr>
+          <td class="py-2 px-3 font-medium whitespace-nowrap">${off.name}</td>
+          ${cells}
+          <td class="py-2 px-3">${signalBadge}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    // =====================================================================
+    // TAB 3 — HITL REVIEW QUEUE
+    // Phase 4: dynamic question cards, Approve/Reject wired to backend
+    // =====================================================================
+
+    /** Fetch pending questions and render all cards. */
+    async function loadReviewQueue() {
+      const container  = document.getElementById("hitl-queue-container");
+      const countBadge = document.getElementById("hitl-count-badge");
+      const tabBadge   = document.getElementById("hitl-badge");
+
+      if (container) {
+        container.innerHTML =
+          '<div class="text-slate-400 text-xs italic p-3"><span class="spinner"></span>Fetching queue…</div>';
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v3/hitl/review-queue`);
+        if (!res.ok) throw new Error(`API ${res.status}`);
+        const data = await res.json();
+
+        const count = data.pending_count ?? 0;
+        if (countBadge) countBadge.innerText = `${count} Pending Review`;
+        if (tabBadge)   tabBadge.innerText   = count > 0 ? count : "";
+
+        if (!container) return;
+
+        if (count === 0) {
+          container.innerHTML =
+            '<div class="text-emerald-700 text-xs font-medium p-4 bg-emerald-50 border border-emerald-200 rounded-lg">'
+            + '✓ All questions reviewed. No items pending approval.</div>';
+          return;
+        }
+
+        container.innerHTML = (data.questions || [])
+          .map(q => renderQuestionCard(q))
+          .join("");
+
+      } catch (err) {
+        if (container) container.innerHTML =
+          `<div class="text-rose-600 text-xs p-3">Error loading queue: ${err.message}. `
+          + `Is the backend running on ${API_BASE}?</div>`;
+      }
+    }
+
+    /**
+     * Build the HTML string for one question card.
+     * The Approve / Reject buttons call reviewQuestion() with this question's ID.
+     */
+    function renderQuestionCard(q) {
+      const optionLetters = ["A", "B", "C", "D", "E"];
+      const optionsHtml = (q.options || []).map((opt, i) => {
+        const isCorrect = opt === q.correct_option;
+        const cls = isCorrect
+          ? "p-2 rounded border bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold"
+          : "p-2 rounded border bg-white border-slate-200 text-slate-600";
+        return `<div class="${cls}">${optionLetters[i] || i+1}. ${opt}${isCorrect ? " ✓" : ""}</div>`;
+      }).join("");
+
+      return `
+        <div class="p-4 border border-slate-200 rounded-lg bg-slate-50/50 space-y-3"
+             id="q-card-${q.question_id}">
+          <div class="flex justify-between text-xs text-slate-500">
+            <span>Competency: <strong>${q.competency.replaceAll("_"," ")}</strong></span>
+            <span>Source: <em>${q.source_doc}</em></span>
+          </div>
+          <p class="text-sm font-semibold text-slate-800">"${q.text}"</p>
+          <div class="grid grid-cols-2 gap-2 text-xs">${optionsHtml}</div>
+          <div class="flex gap-2 justify-end pt-2">
+            <button
+              onclick="reviewQuestion('${q.question_id}', false)"
+              id="reject-btn-${q.question_id}"
+              class="px-3 py-1.5 border border-rose-300 text-rose-700 rounded text-xs hover:bg-rose-50 font-medium transition">
+              Reject / Revise
+            </button>
+            <button
+              onclick="reviewQuestion('${q.question_id}', true)"
+              id="approve-btn-${q.question_id}"
+              class="px-3 py-1.5 bg-emerald-600 text-white rounded text-xs hover:bg-emerald-700 font-semibold transition">
+              Approve &amp; Publish to Bank
+            </button>
+          </div>
+          <!-- Per-card status line, shown while API call is in flight -->
+          <div id="q-status-${q.question_id}" class="hidden text-xs text-slate-500"></div>
+        </div>`;
+    }
+
+    /**
+     * Phase 4 — POST approve/reject decision to the backend.
+     * On success, animates the card out and updates the pending-count badge.
+     */
+    async function reviewQuestion(questionId, approved) {
+      const card      = document.getElementById(`q-card-${questionId}`);
+      const statusEl  = document.getElementById(`q-status-${questionId}`);
+      const approveBtn = document.getElementById(`approve-btn-${questionId}`);
+      const rejectBtn  = document.getElementById(`reject-btn-${questionId}`);
+
+      if (approveBtn) approveBtn.disabled = true;
+      if (rejectBtn)  rejectBtn.disabled  = true;
+      if (statusEl) {
+        statusEl.classList.remove("hidden");
+        statusEl.innerHTML = '<span class="spinner"></span>Submitting review…';
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v3/hitl/review`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question_id: questionId,
+            approved:    approved,
+            reviewer:    REVIEWER_ID,
+            notes:       approved ? "Approved via dashboard." : "Rejected — requires revision.",
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+
+        // Animate card out with a brief flash, then remove it and reload counts
+        if (card) {
+          const flashClass = approved
+            ? "border-emerald-400 bg-emerald-50"
+            : "border-rose-400 bg-rose-50";
+          card.classList.add(...flashClass.split(" "), "transition-all", "duration-300");
+          setTimeout(() => {
+            card.style.opacity = "0";
+            setTimeout(() => {
+              card.remove();
+              // Re-count remaining pending cards in the DOM
+              const remaining = document.querySelectorAll("[id^='q-card-']").length;
+              const countBadge = document.getElementById("hitl-count-badge");
+              const tabBadge   = document.getElementById("hitl-badge");
+              if (countBadge) countBadge.innerText = `${remaining} Pending Review`;
+              if (tabBadge)   tabBadge.innerText   = remaining > 0 ? remaining : "";
+
+              // Show empty-state if no more cards
+              const container = document.getElementById("hitl-queue-container");
+              if (remaining === 0 && container) {
+                container.innerHTML =
+                  '<div class="text-emerald-700 text-xs font-medium p-4 bg-emerald-50 border border-emerald-200 rounded-lg">'
+                  + '✓ All questions reviewed. No items pending approval.</div>';
+              }
+            }, 300);
+          }, 200);
+        }
+
+      } catch (err) {
+        if (statusEl) {
+          statusEl.classList.remove("hidden");
+          statusEl.innerHTML = `<span class="text-rose-600">Error: ${err.message}</span>`;
+        }
+        if (approveBtn) approveBtn.disabled = false;
+        if (rejectBtn)  rejectBtn.disabled  = false;
+      }
+    }
+
+    // =====================================================================
+    // BOOTSTRAP — run on page load
+    // =====================================================================
+    window.addEventListener("DOMContentLoaded", () => {
+      // Phase 3 — auto-run diagnosis so Tab 1 is populated immediately
+      runCompositeDiagnosis();
+
+      // Pre-fetch the HITL queue count so the tab badge is populated
+      // even before the user clicks the HITL tab
+      fetch(`${API_BASE}/api/v3/hitl/review-queue`)
+        .then(r => r.json())
+        .then(data => {
+          const count = data.pending_count ?? 0;
+          const tabBadge = document.getElementById("hitl-badge");
+          if (tabBadge) tabBadge.innerText = count > 0 ? count : "";
+        })
+        .catch(() => {}); // Non-critical — badge simply stays empty
+    });
   </script>
 </body>
 </html>
