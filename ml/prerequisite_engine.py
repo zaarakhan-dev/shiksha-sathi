@@ -10,6 +10,13 @@ v3 changes over v2 (all driven by defensibility under evaluation):
   3. Scoring weights are configurable, not hard-coded constants.
   4. Every diagnosis carries an explicit `confidence` level and `evidence` trail,
      so a reviewer can always see WHY the system concluded what it concluded.
+
+v3.1 edge-case hardening:
+  5. Cycle detection now reports the full cycle path in the error message, not
+     just a boolean — this surfaces graph authoring mistakes immediately.
+  6. When multiple weak ancestors share the same topological depth (distance to
+     target), the tie is broken by lowest score first, so the primary bottleneck
+     surfaced is the most critical unmastered foundation, not an arbitrary one.
 """
 
 from __future__ import annotations
@@ -125,6 +132,11 @@ class CompetencyIntelligenceEngine:
     # ---------------- graph construction ----------------
 
     def _build_statistical_officer_dag(self) -> None:
+        """
+        Phase 1 — define the canonical MoSPI competency prerequisite graph.
+        An edge (A → B) asserts that mastery of A is required before B can be
+        meaningfully assessed or taught.
+        """
         dependencies = [
             ("Python_Basics", "Data_Handling"),
             ("SQL_Basics", "Data_Handling"),
@@ -140,10 +152,25 @@ class CompetencyIntelligenceEngine:
         self.dag.add_edges_from(dependencies)
 
     def _validate_dag(self) -> None:
-        """A prerequisite graph with a cycle is logically impossible. Fail loudly."""
+        """
+        Phase 1 guard — a prerequisite graph with a cycle is logically
+        impossible (A cannot be a prerequisite of B if B is a prerequisite
+        of A). Fail loudly with the full cycle path so the graph author can
+        locate and fix the offending edges immediately.
+
+        v3.1: error now includes the full cycle node sequence, not just a flag.
+        """
         if not nx.is_directed_acyclic_graph(self.dag):
-            cycle = nx.find_cycle(self.dag)
-            raise ValueError(f"Prerequisite graph contains a cycle: {cycle}")
+            # find_cycle returns a list of (u, v, ...) edge tuples
+            cycle_edges = nx.find_cycle(self.dag, orientation="original")
+            cycle_nodes = [e[0] for e in cycle_edges]
+            cycle_nodes.append(cycle_edges[0][0])   # close the loop visually
+            cycle_str = " → ".join(cycle_nodes)
+            raise ValueError(
+                f"Prerequisite graph contains a cycle — this is logically "
+                f"impossible and must be corrected before the engine can run.\n"
+                f"Cycle detected: {cycle_str}"
+            )
 
     @property
     def all_competencies(self) -> List[str]:
@@ -158,7 +185,11 @@ class CompetencyIntelligenceEngine:
         appraisal_score: Optional[float] = None,
     ) -> CompetencyScore:
         """
-        Combine available signals into a single competency score.
+        Phase 2 — combine available signals into a single competency score.
+
+        Scoring policy (70 % quiz / 30 % appraisal) is configurable via
+        ScoringConfig, not hard-coded, so the ministry can recalibrate against
+        real outcome data without touching this logic.
 
         Key v3 behaviour: if the two signals disagree sharply, we DO still
         compute a composite (a trainer needs a number to act on), but we mark
@@ -237,8 +268,8 @@ class CompetencyIntelligenceEngine:
         appraisal_scores: Optional[Dict[str, float]] = None,
     ) -> Dict[str, CompetencyScore]:
         """
-        Score every competency in the DAG — including ones with no data,
-        which are returned explicitly as unassessed rather than omitted.
+        Phase 2 — score every competency in the DAG — including ones with no
+        data, which are returned explicitly as unassessed rather than omitted.
         """
         appraisal_scores = appraisal_scores or {}
         results: Dict[str, CompetencyScore] = {}
@@ -252,12 +283,39 @@ class CompetencyIntelligenceEngine:
 
     # ---------------- diagnosis ----------------
 
+    def _select_primary_bottleneck(
+        self,
+        weak_ancestors: List[str],
+        scores: Dict[str, CompetencyScore],
+        target_comp: str,
+    ) -> str:
+        """
+        Phase 3 — tie-break rule for selecting the single primary bottleneck
+        when multiple weak ancestors exist.
+
+        Sorting key (applied lexicographically):
+          1. Depth descending  — deepest ancestor first (furthest upstream = most foundational)
+          2. Score ascending   — lowest score first (most critical unmastered node)
+          3. Name ascending    — deterministic final tie-break for reproducibility
+
+        v3.1 fix: previously used a bare max() on path length, which picked
+        arbitrarily among ties at equal depth. The new sort ensures the
+        lowest-scoring peer at the same depth is always surfaced as primary.
+        """
+        def sort_key(ancestor: str) -> Tuple[int, float, str]:
+            depth = nx.shortest_path_length(self.dag, ancestor, target_comp)
+            score = scores[ancestor].final_score if scores[ancestor].final_score is not None else 0.0
+            return (-depth, score, ancestor)   # negate depth for descending sort
+
+        return sorted(weak_ancestors, key=sort_key)[0]
+
     def diagnose(self, scores: Dict[str, CompetencyScore]) -> List[Diagnosis]:
         """
-        For each assessed competency below threshold, walk back up the
-        prerequisite chain and identify the earliest still-weak foundation.
+        Phase 3 — for each assessed competency below threshold, walk back up
+        the prerequisite chain and identify the earliest still-weak foundation.
 
         v3: unassessed prerequisites are reported, not assumed mastered.
+        v3.1: tie-break between same-depth ancestors resolved by lowest score.
         """
         cfg = self.config
         diagnoses: List[Diagnosis] = []
@@ -296,14 +354,11 @@ class CompetencyIntelligenceEngine:
                 )
 
             if weak_ancestors:
-                # deepest weak foundation = the one furthest upstream from the target
-                root = max(
-                    weak_ancestors,
-                    key=lambda a: nx.shortest_path_length(self.dag, a, comp),
-                )
+                # v3.1: deepest first, then lowest score — deterministic primary bottleneck
+                root = self._select_primary_bottleneck(weak_ancestors, scores, comp)
                 root_score = scores[root].final_score
                 path = nx.shortest_path(self.dag, root, comp)
-                evidence.append("Prerequisite chain: " + " \u2192 ".join(path))
+                evidence.append("Prerequisite chain: " + " → ".join(path))
                 recommendation = (
                     f"Start with '{root}' ({root_score}) before attempting '{comp}'. "
                     f"Remediating the foundation first is expected to unblock {len(path) - 1} downstream competenc"
@@ -332,7 +387,7 @@ class CompetencyIntelligenceEngine:
                 else:
                     evidence.append("All prerequisites assessed and met.")
                     recommendation = (
-                        f"'{comp}' is a direct gap \u2014 its foundations are solid. "
+                        f"'{comp}' is a direct gap — its foundations are solid. "
                         "Assign targeted remediation for this competency."
                     )
                 diagnoses.append(
@@ -358,8 +413,8 @@ class CompetencyIntelligenceEngine:
 
     def build_learning_path(self, diagnoses: List[Diagnosis]) -> List[Dict]:
         """
-        Collapse per-competency diagnoses into ONE ordered remediation path,
-        topologically sorted so prerequisites always come before dependents.
+        Phase 4 — collapse per-competency diagnoses into ONE ordered remediation
+        path, topologically sorted so prerequisites always come before dependents.
         """
         needed = set()
         for d in diagnoses:
@@ -381,7 +436,7 @@ class CompetencyIntelligenceEngine:
                 "step": i,
                 "competency": comp,
                 "reason": (
-                    f"Foundational \u2014 unblocks {', '.join(unblocks)}"
+                    f"Foundational — unblocks {', '.join(unblocks)}"
                     if unblocks else "Targeted gap"
                 ),
             })
@@ -391,7 +446,7 @@ class CompetencyIntelligenceEngine:
 
     def coverage_report(self, scores: Dict[str, CompetencyScore]) -> Dict:
         """
-        How much of the competency graph did we actually measure?
+        Phase 6 — how much of the competency graph did we actually measure?
         A judge WILL ask this. Better to publish it ourselves.
         """
         total = len(self.all_competencies)
