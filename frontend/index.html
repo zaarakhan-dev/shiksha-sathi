@@ -604,10 +604,10 @@
           method:  "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            cohort_id:  COHORT_ID,
+            cohort_id:   COHORT_ID,
             official_id: OFFICIAL_ID,
             reassessed_quiz_scores: {
-              Data_Handling:      82.0,
+              Data_Handling:       82.0,
               Pandas_Manipulation: 76.5,
               Data_Visualization:  84.2,
             },
@@ -617,17 +617,34 @@
           const err = await res.json().catch(() => ({}));
           throw new Error(`API ${res.status}: ${err.detail || res.statusText}`);
         }
-        const data = await res.json();
 
-        // Re-run full diagnosis so all cards + stepper reflect the updated state
+        // ── Step 1: parse the reassessment response ──────────────────────
+        // We read the full response here so `data.changes`, `data.competencies_improved`,
+        // and `data.remaining_gaps` are all available for rendering AFTER the
+        // diagnosis refresh below finishes (which rewrites diagnosis-box).
+        const data = await res.json();
+        const improved  = data.competencies_improved ?? 0;
+        const remaining = data.remaining_gaps ?? 0;
+        const changes   = data.changes || [];
+
+        // ── Step 2: refresh diagnosis (rewrites score cards + DAG stepper) ─
         await runCompositeDiagnosis();
 
-        // Phase 5 — render delta table
-        renderDeltaTable(data.changes || []);
+        // ── Step 3: if no gaps remain, force-clear the conflict banner ────
+        // runCompositeDiagnosis() calls renderConflictBanner() with fresh data,
+        // but as a belt-and-suspenders guard we also explicitly hide it here
+        // when the reassessment itself reports zero remaining gaps.
+        if (remaining === 0) {
+          document.getElementById("conflict-banner")?.classList.add("hidden");
+        }
 
-        // Prepend a summary message to the diagnosis box
-        const improved = data.competencies_improved;
-        const remaining = data.remaining_gaps;
+        // ── Step 4: render the before/after delta table ───────────────────
+        // Must run AFTER runCompositeDiagnosis() so the section is not
+        // accidentally hidden again by that function's initial state reset.
+        renderDeltaTable(changes);
+
+        // ── Step 5: prepend the summary banner inside the diagnosis box ───
+        // Prepend keeps the diagnosis text visible below the banner.
         const summaryBanner = document.createElement("div");
         summaryBanner.className =
           "mb-3 p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg text-emerald-900 text-xs font-medium";
